@@ -1,4 +1,4 @@
-# encoding: utf-8
+#encoding: utf-8
 require "logstash/outputs/base"
 require "logstash/namespace"
 require "stud/buffer"
@@ -54,9 +54,11 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
   # valid here, for example `logstash-%{type}`.
   config :key, :validate => :string, :required => true
 
+  config :set_value, :validate => :string
+
   # Either list or channel.  If `redis_type` is list, then we will set
   # RPUSH to key. If `redis_type` is channel, then we will PUBLISH to `key`.
-  config :data_type, :validate => [ "list", "channel" ], :required => true
+  config :data_type, :validate => [ "list", "string", "hash", "set", "channel" ], :required => true
 
   # Set to true if you want Redis to batch up values and send 1 RPUSH command
   # instead of one command per value to push on the list.  Note that this only
@@ -77,7 +79,7 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
   # Interval for reconnecting to failed Redis connections
   config :reconnect_interval, :validate => :number, :default => 1
 
-  # In case Redis `data_type` is `list` and has more than `@congestion_threshold` items,
+  # In case Redis `data_type` is `list` or `set` and has more than `@congestion_threshold` items,
   # block until someone consumes them and reduces congestion, otherwise if there are
   # no consumers Redis will run out of memory, unless it was configured with OOM protection.
   # But even with OOM protection, a single Redis list can block all other users of Redis,
@@ -93,8 +95,10 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
   def register
     require 'redis'
 
+    ALLOWED_BATCH_DATA_TYPES = ["list", "set"]
+
     if @batch
-      if @data_type != "list"
+      unless ALLOWED_BATCH_DATA_TYPES.include? @data_type
         raise RuntimeError.new(
           "batch is not supported with data_type #{@data_type}"
         )
@@ -136,9 +140,10 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
   end # def receive
 
   def congestion_check(key)
+    return unless ALLOWED_BATCH_DATA_TYPES.include? @data_type
     return if @congestion_threshold == 0
     if (Time.now.to_i - @congestion_check_times[key]) >= @congestion_interval # Check congestion only if enough time has passed since last check.
-      while @redis.llen(key) > @congestion_threshold # Don't push event to Redis key which has reached @congestion_threshold.
+      while get_len_function.call(key) > @congestion_threshold # Don't push event to Redis key which has reached @congestion_threshold.
         @logger.warn? and @logger.warn("Redis key size has hit a congestion threshold #{@congestion_threshold} suspending output for #{@congestion_interval} seconds")
         sleep @congestion_interval
       end
@@ -152,7 +157,7 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
     # we should not block due to congestion on close
     # to support this Stud::Buffer#buffer_flush should pass here the :final boolean value.
     congestion_check(key) unless close
-    @redis.rpush(key, events)
+    get_send_function.call(key, events)
   end
   # called from Stud::Buffer#buffer_flush when an error occurs
   def on_flush_error(e)
@@ -206,22 +211,23 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
 
   def send_to_redis(event, payload)
     # How can I do this sort of thing with codecs?
-    key = event.sprintf(@key)
+    key     = event.sprintf(@key)
+    value   = get_value(event, payload)
+    send_fn = get_send_function()
 
-    if @batch && @data_type == 'list' # Don't use batched method for pubsub.
+    if @batch && VALID_BATCH_DATA_TYPES.include?(@data_type) # Don't use batched method for pubsub.
       # Stud::Buffer
-      buffer_receive(payload, key)
+      buffer_receive(value, key)
       return
     end
 
     begin
       @redis ||= connect
-      if @data_type == 'list'
-        congestion_check(key)
-        @redis.rpush(key, payload)
-      else
-        @redis.publish(key, payload)
-      end
+
+      congestion_check(key)
+
+      send_fn.call(key, value)
+
     rescue => e
       @logger.warn("Failed to send event to Redis", :event => event,
                    :identity => identity, :exception => e,
@@ -231,4 +237,45 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
       retry
     end
   end
+
+  def get_value(event, payload)
+    case @data_type
+    when "channel", "list", "string"
+      payload
+    when "hash"
+      event.to_hash
+    when "set"
+      event.sprintf(@set_value)
+    end
+  end
+
+  def get_send_function()
+    -> (key, data) {
+      case @data_type
+      when "channel"
+        @redis.publish(key,data)
+      when "list"
+        @redis.rpush(key,data)
+      when "string"
+        @redis.set(key,data)
+      when "hash"
+        @redis.hset(key,data)
+      when "set"
+        @redis.sadd(key,data)
+      end
+    }
+  end
+
+  def get_len_function()
+    -> (key) {
+      if @data_type == "set"
+        @redis.scard(key)
+      elsif @data_type == "list"
+        @redis.llen(key)
+      else
+        0
+      end
+    }
+  end
+
 end
