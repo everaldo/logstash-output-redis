@@ -245,7 +245,11 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
     when "hash"
       event.to_hash
     when "set"
-      event.sprintf(@set_value)
+      if defined?(@set_value)
+        event.sprintf(@set_value)
+      else
+        event.to_json
+      end
     end
   end
 
