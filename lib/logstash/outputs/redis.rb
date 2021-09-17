@@ -92,10 +92,10 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
   # Zero means to check on every event.
   config :congestion_interval, :validate => :number, :default => 1
 
+  ALLOWED_BATCH_DATA_TYPES = ["list", "set"]
+
   def register
     require 'redis'
-
-    ALLOWED_BATCH_DATA_TYPES = ["list", "set"]
 
     if @batch
       unless ALLOWED_BATCH_DATA_TYPES.include? @data_type
