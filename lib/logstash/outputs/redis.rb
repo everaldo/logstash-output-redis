@@ -215,7 +215,7 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
     value   = get_value(event, payload)
     send_fn = get_send_function()
 
-    if @batch && VALID_BATCH_DATA_TYPES.include?(@data_type) # Don't use batched method for pubsub.
+    if @batch && ALLOWED_BATCH_DATA_TYPES.include?(@data_type) # Don't use batched method for pubsub.
       # Stud::Buffer
       buffer_receive(value, key)
       return
