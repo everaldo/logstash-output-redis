@@ -240,7 +240,7 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
 
   def get_value(event, payload)
     case @data_type
-    when "channel", "list", "string"
+    when "channel", "list","string"
       payload
     when "hash"
       event.to_hash
