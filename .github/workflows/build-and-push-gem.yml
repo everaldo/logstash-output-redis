@@ -1,0 +1,28 @@
+name: Gem Push
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    name: Build + Publish
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up JRuby (logstash plugins constraint)
+      uses: ruby/setup-ruby@v1.81.0
+      with:
+        ruby-version: .ruby-version
+
+    - name: Publish to GPR
+      run: |
+        mkdir -p $HOME/.gem
+        touch $HOME/.gem/credentials
+        chmod 0600 $HOME/.gem/credentials
+        printf -- "---\n:github: ${GEM_HOST_API_KEY}\n" > $HOME/.gem/credentials
+        gem build logstash-output-redis.gemspec
+        gem push --KEY github --host https://rubygems.pkg.github.com/cmirallesp logstash-output-redis-*.gem
+      env:
+        GEM_HOST_API_KEY: "Bearer ${{secrets.GITHUB_TOKEN}}"
+        OWNER: ${{ github.repository_owner }}
