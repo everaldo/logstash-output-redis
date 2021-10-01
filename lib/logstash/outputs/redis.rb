@@ -16,6 +16,16 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
 
   include Stud::Buffer
 
+  SET_METHOD = {
+      'channel' => :publish,
+      'list'    => :rpush,
+      'string'  => :set,
+      'hash'    => :hset,
+      'set'     => :sadd
+  }
+
+  LEN_METHOD = { 'list' => :llen, 'set' => :scard }
+
   config_name "redis"
 
   default :codec, "json"
@@ -96,7 +106,6 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
 
   def register
     require 'redis'
-
     if @batch
       unless ALLOWED_BATCH_DATA_TYPES.include? @data_type
         raise RuntimeError.new(
@@ -143,7 +152,7 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
     return unless ALLOWED_BATCH_DATA_TYPES.include? @data_type
     return if @congestion_threshold == 0
     if (Time.now.to_i - @congestion_check_times[key]) >= @congestion_interval # Check congestion only if enough time has passed since last check.
-      while get_len_function.call(key) > @congestion_threshold # Don't push event to Redis key which has reached @congestion_threshold.
+      while @redis.len(key) > @congestion_threshold # Don't push event to Redis key which has reached @congestion_threshold.
         @logger.warn? and @logger.warn("Redis key size has hit a congestion threshold #{@congestion_threshold} suspending output for #{@congestion_interval} seconds")
         sleep @congestion_interval
       end
@@ -157,7 +166,7 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
     # we should not block due to congestion on close
     # to support this Stud::Buffer#buffer_flush should pass here the :final boolean value.
     congestion_check(key) unless close
-    get_send_function.call(key, events)
+    @redis.update(key, events)
   end
   # called from Stud::Buffer#buffer_flush when an error occurs
   def on_flush_error(e)
@@ -200,8 +209,20 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
     if @password
       params[:password] = @password.value
     end
+    redis = Redis.new(params)
+    data_type = @data_type
 
-    Redis.new(params)
+    redis.define_singleton_method(:update) do |key, value|
+      redis.send(SET_METHOD[data_type], key, value)
+    end
+
+    redis.define_singleton_method(:len) do |key|
+      return 0 unless ALLOWED_BATCH_DATA_TYPES.include? data_type
+
+      redis.send(LEN_METHOD[data_type], key)
+    end
+
+    redis
   end # def connect
 
   # A string used to identify a Redis instance in log messages
@@ -212,8 +233,7 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
   def send_to_redis(event, payload)
     # How can I do this sort of thing with codecs?
     key     = event.sprintf(@key)
-    value   = get_value(event, payload)
-    send_fn = get_send_function()
+    value   = value_from_data_type(event, payload)
 
     if @batch && ALLOWED_BATCH_DATA_TYPES.include?(@data_type) # Don't use batched method for pubsub.
       # Stud::Buffer
@@ -226,7 +246,7 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
 
       congestion_check(key)
 
-      send_fn.call(key, value)
+      @redis.update(key, value)
 
     rescue => e
       @logger.warn("Failed to send event to Redis", :event => event,
@@ -238,48 +258,14 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
     end
   end
 
-  def get_value(event, payload)
+  def value_from_data_type(event, payload)
     case @data_type
-    when "channel", "list","string"
+    when 'channel', 'list', 'string'
       payload
-    when "hash"
+    when 'hash'
       event.to_hash
-    when "set"
-      if defined?(@set_value)
-        event.sprintf(@set_value)
-      else
-        event.to_json
-      end
+    when 'set'
+      defined?(@set_value) ? event.sprintf(@set_value) : event.to_json
     end
   end
-
-  def get_send_function()
-    -> (key, data) {
-      case @data_type
-      when "channel"
-        @redis.publish(key,data)
-      when "list"
-        @redis.rpush(key,data)
-      when "string"
-        @redis.set(key,data)
-      when "hash"
-        @redis.hset(key,data)
-      when "set"
-        @redis.sadd(key,data)
-      end
-    }
-  end
-
-  def get_len_function()
-    -> (key) {
-      if @data_type == "set"
-        @redis.scard(key)
-      elsif @data_type == "list"
-        @redis.llen(key)
-      else
-        0
-      end
-    }
-  end
-
 end
