@@ -44,13 +44,9 @@ describe LogStash::Outputs::Redis do
       end
 
       after do
-        if data_type == "hash"
-          redis.keys("test-hash-*").each { |k| redis.del(k) }
-        elsif data_type == "string"
-          redis.keys("test-string-*").each { |k| redis.del(k) }
-        else
-          redis.del(key)
-        end
+        redis.keys("test-hash-*").each { |k| redis.del(k) }
+        redis.keys("test-string-*").each { |k| redis.del(k) }
+        redis.del(key)
       end
 
       it "should successfully send all events to redis" do
@@ -80,6 +76,7 @@ describe LogStash::Outputs::Redis do
             event = redis.hgetall(key)
             expect(event["sequence"]).to eql value.to_s
             expect(event["message"]).to eql message
+            break
           end
 
         when "string"

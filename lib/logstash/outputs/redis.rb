@@ -268,6 +268,8 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
       event.to_hash
     when 'set'
       defined?(@set_value) ? event.sprintf(@set_value) : event.to_json
+    else
+      raise "Value not defined for data_type: #{data_type}"
     end
   end
 end
