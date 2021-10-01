@@ -209,20 +209,22 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
     if @password
       params[:password] = @password.value
     end
-    redis = Redis.new(params)
-    data_type = @data_type
 
-    redis.define_singleton_method(:update) do |key, value|
-      redis.send(SET_METHOD[data_type], key, value)
+    Redis.new(params).yield_self do |redis|
+      data_type = @data_type
+
+      redis.define_singleton_method(:update) do |key, value|
+        redis.send(SET_METHOD[data_type], key, value)
+      end
+
+      redis.define_singleton_method(:len) do |key|
+        return 0 unless ALLOWED_BATCH_DATA_TYPES.include? data_type
+
+        redis.send(LEN_METHOD[data_type], key)
+      end
+
+      redis
     end
-
-    redis.define_singleton_method(:len) do |key|
-      return 0 unless ALLOWED_BATCH_DATA_TYPES.include? data_type
-
-      redis.send(LEN_METHOD[data_type], key)
-    end
-
-    redis
   end # def connect
 
   # A string used to identify a Redis instance in log messages
