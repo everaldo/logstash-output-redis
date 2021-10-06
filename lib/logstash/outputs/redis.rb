@@ -202,7 +202,8 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
       :port => @current_port,
       :timeout => @timeout,
       :db => @db,
-      :ssl => @ssl
+      :ssl => @ssl,
+      :ssl_params => { verify_mode: OpenSSL::SSL::VERIFY_NONE }
     }
     @logger.debug("connection params", params)
 
