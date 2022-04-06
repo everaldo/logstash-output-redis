@@ -58,7 +58,7 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
   config :timeout, :validate => :number, :default => 5
 
   # Username to authenticate with. There is no authentication by default.
-  config :username, :validate => :username
+  config :username, :validate => :string
 
   # Password to authenticate with.  There is no authentication by default.
   config :password, :validate => :password
@@ -211,7 +211,7 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
     @logger.debug("connection params", params)
 
     if @username
-      params[:username] = @username.value
+      params[:username] = @username
     end
 
     if @password
