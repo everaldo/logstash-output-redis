@@ -57,6 +57,9 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
   # Redis initial connection timeout in seconds.
   config :timeout, :validate => :number, :default => 5
 
+  # Username to authenticate with. There is no authentication by default.
+  config :username, :validate => :username
+
   # Password to authenticate with.  There is no authentication by default.
   config :password, :validate => :password
 
@@ -207,6 +210,10 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
     }
     @logger.debug("connection params", params)
 
+    if @username
+      params[:username] = @username.value
+    end
+
     if @password
       params[:password] = @password.value
     end
@@ -230,7 +237,7 @@ class LogStash::Outputs::Redis < LogStash::Outputs::Base
 
   # A string used to identify a Redis instance in log messages
   def identity
-    "redis://#{@password}@#{@current_host}:#{@current_port}/#{@db} #{@data_type}:#{@key}"
+    "redis://#{@username}:#{@password}@#{@current_host}:#{@current_port}/#{@db} #{@data_type}:#{@key}"
   end
 
   def send_to_redis(event, payload)

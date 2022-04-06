@@ -1,3 +1,6 @@
+## 5.2.1
+  - Add the ability to pass a username for authentication
+
 ## 5.1.0
   - Added basic support for SSL  [#59](https://github.com/logstash-plugins/logstash-output-redis/pull/59)
   - Fixed documentation of required settings [#61](https://github.com/logstash-plugins/logstash-output-redis/pull/61)
